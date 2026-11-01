@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="fr" class="h-full bg-slate-50">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Scan&Resto - Assistant Carte Restaurant Intermarché</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Html5-QRCode Library for Camera Scanning -->
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <!-- Inter Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0fdf4',
+                            100: '#dcfce7',
+                            500: '#22c55e',
+                            600: '#16a34a',
+                            700: '#15803d',
+                            dark: '#052e16',
+                        },
+                        inter: {
+                            red: '#e2001a',
+                            dark: '#1e293b'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Mobile tap animations & styling */
+        .tap-highlight-transparent {
+            -webkit-tap-highlight-color: transparent;
+        }
+        .pulse-border {
+            animation: pulse-border 2s infinite;
+        }
+        @keyframes pulse-border {
+            0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+        }
+        /* Hide scrollbars for clean UI */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="h-full flex flex-col font-sans text-slate-800 bg-slate-100 antialiased select-none tap-highlight-transparent">
+
+    <!-- App Header -->
+    <header class="bg-slate-900 text-white sticky top-0 z-30 shadow-md">
+        <div class="max-w-md mx-auto px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+                <div class="w-9 h-9 bg-brand-600 rounded-xl flex items-center justify-center font-bold text-white shadow-sm">
+                    <i class="fa-solid me-0.5 fa-utensils"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-base leading-tight tracking-tight flex items-center gap-1.5">
+                        Scan&Resto 
+                        <span class="text-[10px] bg-inter-red text-white px-1.5 py-0.5 rounded font-extrabold uppercase">Intermarché</span>
+                    </h1>
+                    <p class="text-[11px] text-slate-400">Optimiseur Titres-Restaurant</p>
+                </div>
+            </div>
+            <button id="resetCartBtn" class="text-xs text-slate-400 hover:text-red-400 px-2 py-1 rounded-lg border border-slate-700 transition">
+                <i class="fa-solid fa-trash-can mr-1"></i>Vider
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Scrollable Area -->
+    <main class="flex-1 overflow-y-auto pb-28 max-w-md mx-auto w-full">
+
+        <!-- Top Status Banner & Progress Card -->
+        <div class="p-4 space-y-4">
+            
+            <!-- Dynamic 25€ Budget Gauge -->
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 relative overflow-hidden">
+                <div class="flex justify-between items-start mb-2">
+                    <div>
+                        <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Plafond Titre-Resto du Jour</span>
+                        <div class="flex items-baseline space-x-1 mt-0.5">
+                            <span id="trTotalDisplay" class="text-3xl font-extrabold text-slate-900">0,00 €</span>
+                            <span class="text-sm font-semibold text-slate-400">/ 25,00 €</span>
+                        </div>
+                    </div>
+                    <div id="statusBadge" class="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                        <i class="fa-solid fa-circle-check"></i> <span id="statusBadgeText">Dans le quota</span>
+                    </div>
+                </div>
+
+                <!-- Progress Bar -->
+                <div class="w-full bg-slate-100 h-3.5 rounded-full overflow-hidden p-0.5 mb-2 relative">
+                    <div id="trProgressBar" class="h-full bg-brand-500 rounded-full transition-all duration-300 w-0"></div>
+                </div>
+
+                <!-- Detailed Breakdown summary -->
+                <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-xs">
+                    <div class="bg-slate-50 p-2 rounded-xl">
+                        <span class="text-slate-500 block text-[11px]">Reste disponible TR</span>
+                        <span id="remainingTR" class="font-bold text-brand-700 text-sm">25,00 €</span>
+                    </div>
+                    <div class="bg-slate-50 p-2 rounded-xl">
+                        <span class="text-slate-500 block text-[11px]">Hors-TR / Dépassement</span>
+                        <span id="nonTrTotal" class="font-bold text-slate-700 text-sm">0,00 €</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Controls: Camera Scan + Quick Add Buttons -->
+            <div class="grid grid-cols-2 gap-3">
+                <button id="openScannerBtn" class="bg-brand-600 hover:bg-brand-700 text-white p-3.5 rounded-2xl shadow-sm flex items-center justify-center font-medium gap-2 active:scale-95 transition tap-highlight-transparent pulse-border">
+                    <i class="fa-solid fa-barcode text-lg"></i>
+                    <span>Scanner Article</span>
+                </button>
+
+                <button id="openSearchBtn" class="bg-white border border-slate-200 text-slate-800 p-3.5 rounded-2xl shadow-sm flex items-center justify-center font-medium gap-2 active:scale-95 transition hover:bg-slate-50">
+                    <i class="fa-solid fa-magnifying-glass text-brand-600 text-lg"></i>
+                    <span>Rechercher</span>
+                </button>
+            </div>
+
+            <!-- Mode Switch Tabs -->
+            <div class="flex bg-slate-200 p-1 rounded-xl text-xs font-medium text-slate-600">
+                <button id="tabCart" class="flex-1 py-2 rounded-lg bg-white text-slate-900 shadow-sm font-semibold transition text-center">
+                    <i class="fa-solid fa-cart-shopping mr-1"></i> Panier (<span id="cartCount">0</span>)
+                </button>
+                <button id="tabBelt" class="flex-1 py-2 rounded-lg hover:text-slate-900 transition text-center flex items-center justify-center gap-1">
+                    <i class="fa-solid fa-arrows-split-up-and-left text-brand-600"></i> Optimiseur Caisse
+                </button>
+            </div>
+
+            <!-- SECTION 1: Shopping Cart View -->
+            <div id="cartView" class="space-y-3">
+                
+                <!-- Quick add direct input bar -->
+                <form id="quickAddForm" class="bg-white p-2.5 rounded-xl border border-slate-200 flex gap-2 items-center shadow-sm">
+                    <input type="text" id="customName" placeholder="Nom produit (ex: Sandwich)" required class="flex-1 bg-slate-50 border-0 rounded-lg px-3 py-1.5 text-xs focus:ring-2 focus:ring-brand-500 outline-none">
+                    <input type="number" id="customPrice" step="0.01" min="0.05" placeholder="Prix €" required class="w-16 bg-slate-50 border-0 rounded-lg px-2 py-1.5 text-xs text-center font-bold focus:ring-2 focus:ring-brand-500 outline-none">
+                    <button type="submit" class="bg-slate-900 text-white w-8 h-8 rounded-lg flex items-center justify-center hover:bg-slate-800 active:scale-95 transition">
+                        <i class="fa-solid fa-plus text-xs"></i>
+                    </button>
+                </form>
+
+                <!-- Cart Items List Container -->
+                <div id="cartItemsList" class="space-y-2">
+                    <!-- Dynamic Cart Items Rendered Here -->
+                </div>
+
+                <!-- Empty State -->
+                <div id="emptyCartState" class="py-12 text-center text-slate-400 bg-white rounded-2xl border border-dashed border-slate-200">
+                    <i class="fa-solid fa-basket-shopping text-4xl mb-3 text-slate-300"></i>
+                    <p class="text-sm font-medium text-slate-600">Votre panier est vide</p>
+                    <p class="text-xs text-slate-400 mt-1 max-w-[200px] mx-auto">Scannez des produits en rayon ou ajoutez-les pour suivre vos 25 €</p>
+                </div>
+            </div>
+
+            <!-- SECTION 2: Cashier Belt Separator View -->
+            <div id="beltView" class="hidden space-y-4">
+                <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-900 flex items-start gap-2.5">
+                    <i class="fa-solid fa-lightbulb text-emerald-600 text-base mt-0.5"></i>
+                    <div>
+                        <strong class="font-semibold block mb-0.5">Comment séparer vos articles sur le tapis ?</strong>
+                        Déposez les produits du <strong>Tapis 1</strong> en premier pour que la caisse Intermarché débite automatiquement 25 € max sur votre carte resto. Payez le <strong>Tapis 2</strong> ensuite en CB.
+                    </div>
+                </div>
+
+                <!-- Belt 1: Ticket Resto -->
+                <div class="bg-white rounded-2xl border-2 border-brand-500 overflow-hidden shadow-sm">
+                    <div class="bg-brand-50 px-4 py-2.5 border-b border-brand-200 flex justify-between items-center">
+                        <div class="flex items-center gap-2">
+                            <span class="w-6 h-6 bg-brand-600 text-white rounded-full flex items-center justify-center font-bold text-xs">1</span>
+                            <h3 class="font-bold text-sm text-slate-900">Tapis 1 : Carte Titre-Resto</h3>
+                        </div>
+                        <span id="belt1Total" class="font-extrabold text-sm text-brand-700">0,00 €</span>
+                    </div>
+                    <div id="belt1List" class="p-3 divide-y divide-slate-100 space-y-2">
+                        <!-- Render Belt 1 items -->
+                    </div>
+                </div>
+
+                <!-- Belt 2: Standard Payment (Overflow + Non TR) -->
+                <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+                    <div class="bg-slate-100 px-4 py-2.5 border-b border-slate-200 flex justify-between items-center">
+                        <div class="flex items-center gap-2">
+                            <span class="w-6 h-6 bg-slate-700 text-white rounded-full flex items-center justify-center font-bold text-xs">2</span>
+                            <h3 class="font-bold text-sm text-slate-900">Tapis 2 : Carte Bancaire / Cash</h3>
+                        </div>
+                        <span id="belt2Total" class="font-extrabold text-sm text-slate-800">0,00 €</span>
+                    </div>
+                    <div id="belt2List" class="p-3 divide-y divide-slate-100 space-y-2">
+                        <!-- Render Belt 2 items -->
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Bottom Checkout Summary Bar -->
+    <div class="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 shadow-lg z-20">
+        <div class="max-w-md mx-auto p-4 flex items-center justify-between">
+            <div>
+                <span class="text-[11px] uppercase tracking-wider font-semibold text-slate-400 block">Total Panier</span>
+                <span id="grandTotal" class="text-2xl font-black text-slate-900">0,00 €</span>
+            </div>
+            <div class="text-right">
+                <span class="text-[11px] text-slate-500 block">Répartition Caisse :</span>
+                <div class="text-xs font-semibold">
+                    <span class="text-brand-600" id="summaryTr">0,00 € (TR)</span> + 
+                    <span class="text-slate-700" id="summaryCb">0,00 € (CB)</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 1: Search & Database Drawer -->
+    <div id="searchModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex flex-col justify-end transition-opacity">
+        <div class="bg-white rounded-t-3xl max-w-md w-full mx-auto h-[85vh] flex flex-col overflow-hidden shadow-2xl">
+            
+            <!-- Modal Header -->
+            <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+                <h2 class="font-bold text-base text-slate-800 flex items-center gap-2">
+                    <i class="fa-solid fa-magnifying-glass text-brand-600"></i> Catalogue Intermarché
+                </h2>
+                <button id="closeSearchBtn" class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center hover:bg-slate-200">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- Search Input -->
+            <div class="p-4 bg-slate-50 border-b border-slate-100">
+                <div class="relative">
+                    <i class="fa-solid fa-search absolute left-3.5 top-3 text-slate-400 text-sm"></i>
+                    <input type="text" id="searchInput" placeholder="Rechercher sandwich, eau, lessive, fruits..." class="w-full bg-white pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-brand-500 outline-none">
+                </div>
+                <!-- Filter Chips -->
+                <div class="flex gap-2 mt-3 overflow-x-auto no-scrollbar text-xs">
+                    <button data-filter="all" class="filter-chip bg-slate-900 text-white px-3 py-1.5 rounded-lg font-medium whitespace-nowrap">Tous</button>
+                    <button data-filter="tr" class="filter-chip bg-white border border-slate-200 text-slate-600 px-3 py-1.5 rounded-lg font-medium whitespace-nowrap">
+                        <i class="fa-solid fa-circle-check text-brand-600 mr-1"></i>Éligibles TR
+                    </button>
+                    <button data-filter="nontr" class="filter-chip bg-white border border-slate-200 text-slate-600 px-3 py-1.5 rounded-lg font-medium whitespace-nowrap">
+                        <i class="fa-solid fa-ban text-red-500 mr-1"></i>Hors-TR
+                    </button>
+                </div>
+            </div>
+
+            <!-- Product List -->
+            <div id="searchResultsList" class="flex-1 overflow-y-auto p-4 space-y-2.5">
+                <!-- Products injected via JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 2: Interactive Camera & Simulator Barcode Scanner -->
+    <div id="scannerModal" class="fixed inset-0 bg-slate-950 z-50 hidden flex flex-col justify-between">
+        
+        <!-- Top Bar inside Scanner -->
+        <div class="p-4 flex items-center justify-between text-white z-10">
+            <span class="font-bold text-sm flex items-center gap-2">
+                <i class="fa-solid fa-barcode text-brand-500"></i> Scanner un Code-barres
+            </span>
+            <button id="closeScannerBtn" class="w-8 h-8 rounded-full bg-white/20 text-white flex items-center justify-center">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <!-- Camera Container -->
+        <div class="relative flex-1 flex items-center justify-center overflow-hidden">
+            <div id="qr-reader" class="w-full max-w-sm"></div>
+            
+            <!-- Target Overlay Frame -->
+            <div class="absolute inset-0 border-2 border-brand-500/30 pointer-events-none flex items-center justify-center">
+                <div class="w-64 h-40 border-2 border-brand-500 rounded-2xl relative shadow-[0_0_0_9999px_rgba(0,0,0,0.6)]">
+                    <div class="absolute inset-x-0 top-1/2 h-0.5 bg-red-500 shadow-sm animate-pulse"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Simulated Quick Barcode Generator (For Desktop / Easy Testing) -->
+        <div class="bg-slate-900 p-4 border-t border-slate-800 text-white space-y-3 z-10">
+            <p class="text-xs text-slate-400 text-center">Ou testez instantanément en simulant le scan d'un produit :</p>
+            <div class="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+                <button onclick="simulateScan('3250392485918')" class="bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded-xl text-xs font-medium whitespace-nowrap text-brand-400 border border-slate-700">
+                    🥪 Sandwich Poulet (3.50€)
+                </button>
+                <button onclick="simulateScan('3017620422003')" class="bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded-xl text-xs font-medium whitespace-nowrap text-brand-400 border border-slate-700">
+                    🥗 Salade Mix (6.90€)
+                </button>
+                <button onclick="simulateScan('3178041320089')" class="bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded-xl text-xs font-medium whitespace-nowrap text-red-400 border border-slate-700">
+                    🧴 Lessive Ariel (14.20€)
+                </button>
+                <button onclick="simulateScan('3057640100412')" class="bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded-xl text-xs font-medium whitespace-nowrap text-brand-400 border border-slate-700">
+                    🥩 Escalopes Poulet (11.50€)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="fixed top-16 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs px-4 py-2.5 rounded-full shadow-xl z-50 hidden transition-all duration-300 flex items-center gap-2 border border-slate-700">
+        <i id="toastIcon" class="fa-solid fa-circle-check text-brand-500"></i>
+        <span id="toastMsg">Produit ajouté !</span>
+    </div>
+
+    <!-- SCRIPT APPLICATION LOGIC -->
+    <script>
+        // --- 1. MOCK DATABASE (Intermarché Typical Items) ---
+        const DATABASE = [
+            { id: '101', barcode: '3250392485918', name: 'Sandwich Sodebo Poulet', brand: 'Monique Ranou', price: 3.50, trEligible: true, category: 'Plats Préparés' },
+            { id: '102', barcode: '3017620422003', name: 'Salade Sodebo Manhattan', brand: 'Sodebo', price: 6.90, trEligible: true, category: 'Plats Préparés' },
+            { id: '103', barcode: '3057640100412', name: 'Escalopes de Poulet 1kg', brand: 'Jean Rozé', price: 11.50, trEligible: true, category: 'Boucherie' },
+            { id: '104', barcode: '3178041320089', name: 'Lessive Liquide 2L', brand: 'Ariel', price: 14.20, trEligible: false, category: 'Entretien' },
+            { id: '105', barcode: '3033710001234', name: 'Yaourt Nature x8', brand: 'Pâturages', price: 2.30, trEligible: true, category: 'Crémerie' },
+            { id: '106', barcode: '3046920022606', name: 'Chocolat Noir 85%', brand: 'Ivoria', price: 1.85, trEligible: true, category: 'Épicerie' },
+            { id: '107', barcode: '3250390123458', name: 'Bouteille d\'Eau Minérale 1.5L', brand: 'Cristaline', price: 0.45, trEligible: true, category: 'Boissons' },
+            { id: '108', barcode: '3564700011223', name: 'Papier Toilette 12 Rouleaux', brand: 'Domedia', price: 4.80, trEligible: false, category: 'Hygiène' },
+            { id: '109', barcode: '3250391112229', name: 'Bordeaux Rouge 75cl', brand: 'Château Inter', price: 7.90, trEligible: false, category: 'Alcools' },
+            { id: '110', barcode: '3250393334442', name: 'Pommes Gala 1kg', brand: 'Producteurs d\'Ici', price: 2.99, trEligible: true, category: 'Fruits & Légumes' },
+            { id: '111', barcode: '3250394445551', name: 'Paquet de Pâtes Penne 500g', brand: 'Chabrior', price: 1.15, trEligible: true, category: 'Épicerie' },
+            { id: '112', barcode: '3250395556660', name: 'Dosettes Café x36', brand: 'Planteur', price: 4.25, trEligible: true, category: 'Épicerie' }
+        ];
+
+        // --- 2. STATE MANAGEMENT ---
+        let cart = [];
+        let html5QrcodeScanner = null;
+
+        // Load cart from LocalStorage if available
+        function loadSavedCart() {
+            const saved = localStorage.getItem('scan_resto_cart');
+            if (saved) {
+                try {
+                    cart = JSON.parse(saved);
+                } catch(e) { cart = []; }
+            }
+        }
+
+        function saveCart() {
+            localStorage.setItem('scan_resto_cart', JSON.stringify(cart));
+            updateUI();
+        }
+
+        // --- 3. UI UPDATES & CALCULATIONS ---
+        function updateUI() {
+            const cartItemsList = document.getElementById('cartItemsList');
+            const emptyCartState = document.getElementById('emptyCartState');
+            const cartCount = document.getElementById('cartCount');
+            
+            cartCount.innerText = cart.length;
+
+            // Render Cart Items
+            if (cart.length === 0) {
+                cartItemsList.innerHTML = '';
+                emptyCartState.classList.remove('hidden');
+            } else {
+                emptyCartState.classList.add('hidden');
+                cartItemsList.innerHTML = cart.map((item, index) => `
+                    <div class="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between gap-2">
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-1.5 mb-1">
+                                <span class="${item.trEligible ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'} text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                                    <i class="fa-solid ${item.trEligible ? 'fa-utensils text-emerald-600' : 'fa-ban text-slate-400'}"></i>
+                                    ${item.trEligible ? 'Éligible TR' : 'Hors TR'}
+                                </span>
+                                <span class="text-[10px] text-slate-400 truncate">${item.brand || 'Intermarché'}</span>
+                            </div>
+                            <h4 class="font-semibold text-xs text-slate-900 truncate">${item.name}</h4>
+                            <div class="text-xs font-bold text-slate-800 mt-0.5">${(item.price * item.qty).toFixed(2)} € <span class="text-[10px] text-slate-400 font-normal">(${item.price.toFixed(2)}€/u)</span></div>
+                        </div>
+
+                        <!-- Quantity Control -->
+                        <div class="flex items-center bg-slate-100 rounded-xl p-1 gap-2">
+                            <button onclick="changeQty(${index}, -1)" class="w-6 h-6 rounded-lg bg-white shadow-xs text-slate-700 flex items-center justify-center font-bold active:scale-90 transition text-xs">-</button>
+                            <span class="text-xs font-bold w-4 text-center">${item.qty}</span>
+                            <button onclick="changeQty(${index}, 1)" class="w-6 h-6 rounded-lg bg-white shadow-xs text-slate-700 flex items-center justify-center font-bold active:scale-90 transition text-xs">+</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            // Calculations
+            let trEligibleSubtotal = 0;
+            let nonTrSubtotal = 0;
+
+            cart.forEach(item => {
+                const totalVal = item.price * item.qty;
+                if (item.trEligible) {
+                    trEligibleSubtotal += totalVal;
+                } else {
+                    nonTrSubtotal += totalVal;
+                }
+            });
+
+            const trPaid = Math.min(trEligibleSubtotal, 25.00);
+            const trOverflow = Math.max(0, trEligibleSubtotal - 25.00);
+            const remainingQuota = Math.max(0, 25.00 - trEligibleSubtotal);
+            const totalCbToPay = nonTrSubtotal + trOverflow;
+            const grandTotal = trEligibleSubtotal + nonTrSubtotal;
+
+            // Gauge & Badges
+            document.getElementById('trTotalDisplay').innerText = `${trEligibleSubtotal.toFixed(2)} €`;
+            document.getElementById('remainingTR').innerText = `${remainingQuota.toFixed(2)} €`;
+            document.getElementById('nonTrTotal').innerText = `${(nonTrSubtotal + trOverflow).toFixed(2)} €`;
+            document.getElementById('grandTotal').innerText = `${grandTotal.toFixed(2)} €`;
+            document.getElementById('summaryTr').innerText = `${trPaid.toFixed(2)} € (TR)`;
+            document.getElementById('summaryCb').innerText = `${totalCbToPay.toFixed(2)} € (CB)`;
+
+            // Progress bar length (%)
+            const pct = Math.min((trEligibleSubtotal / 25.00) * 100, 100);
+            const progressBar = document.getElementById('trProgressBar');
+            progressBar.style.width = `${pct}%`;
+
+            const statusBadge = document.getElementById('statusBadge');
+            const statusBadgeText = document.getElementById('statusBadgeText');
+
+            if (trEligibleSubtotal > 25.00) {
+                progressBar.className = "h-full bg-amber-500 rounded-full transition-all duration-300";
+                statusBadge.className = "px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 flex items-center gap-1";
+                statusBadgeText.innerText = "Plafond 25€ atteint";
+            } else {
+                progressBar.className = "h-full bg-brand-500 rounded-full transition-all duration-300";
+                statusBadge.className = "px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 flex items-center gap-1";
+                statusBadgeText.innerText = "Dans le quota";
+            }
+
+            // Update Cashier Belt View
+            updateBeltView(trEligibleSubtotal);
+        }
+
+        // --- 4. OPTIMIZED CASHIER BELT SORTING LOGIC ---
+        function updateBeltView(trEligibleSubtotal) {
+            const belt1List = document.getElementById('belt1List');
+            const belt2List = document.getElementById('belt2List');
+            const belt1Total = document.getElementById('belt1Total');
+            const belt2Total = document.getElementById('belt2Total');
+
+            let currentTrAccumulator = 0;
+            let belt1Items = [];
+            let belt2Items = [];
+
+            // Sort products into belt 1 (Up to 25€ TR) and belt 2 (rest)
+            cart.forEach(item => {
+                for (let i = 0; i < item.qty; i++) {
+                    const unitItem = { ...item, qty: 1 };
+                    if (item.trEligible && (currentTrAccumulator + item.price) <= 25.00) {
+                        currentTrAccumulator += item.price;
+                        belt1Items.push(unitItem);
+                    } else {
+                        belt2Items.push(unitItem);
+                    }
+                }
+            });
+
+            belt1Total.innerText = `${currentTrAccumulator.toFixed(2)} €`;
+            const b2Sum = belt2Items.reduce((acc, i) => acc + i.price, 0);
+            belt2Total.innerText = `${b2Sum.toFixed(2)} €`;
+
+            belt1List.innerHTML = belt1Items.length ? belt1Items.map(i => `
+                <div class="py-1.5 flex justify-between items-center text-xs">
+                    <span class="text-slate-700 font-medium">${i.name}</span>
+                    <span class="font-bold text-slate-900">${i.price.toFixed(2)} €</span>
+                </div>
+            `).join('') : '<p class="text-xs text-slate-400 italic py-2">Aucun article TR pour le Tapis 1</p>';
+
+            belt2List.innerHTML = belt2Items.length ? belt2Items.map(i => `
+                <div class="py-1.5 flex justify-between items-center text-xs">
+                    <div>
+                        <span class="text-slate-700 font-medium block">${i.name}</span>
+                        ${!i.trEligible ? '<span class="text-[9px] text-red-500 font-semibold">Non éligible TR</span>' : '<span class="text-[9px] text-amber-600 font-semibold">Dépassement 25€</span>'}
+                    </div>
+                    <span class="font-bold text-slate-900">${i.price.toFixed(2)} €</span>
+                </div>
+            `).join('') : '<p class="text-xs text-slate-400 italic py-2">Rien à payer sur le tapis 2</p>';
+        }
+
+        // --- 5. CART INTERACTIONS ---
+        function addToCart(product) {
+            const existingIndex = cart.findIndex(i => i.name === product.name && i.trEligible === product.trEligible);
+            if (existingIndex > -1) {
+                cart[existingIndex].qty += 1;
+            } else {
+                cart.push({ ...product, qty: 1 });
+            }
+            saveCart();
+            showToast(`Ajouté: ${product.name}`);
+        }
+
+        function changeQty(index, delta) {
+            cart[index].qty += delta;
+            if (cart[index].qty <= 0) {
+                cart.splice(index, 1);
+            }
+            saveCart();
+        }
+
+        document.getElementById('resetCartBtn').addEventListener('click', () => {
+            if (cart.length === 0) return;
+            cart = [];
+            saveCart();
+            showToast("Panier réinitialisé", "fa-trash-can");
+        });
+
+        // Quick Custom Item Form
+        document.getElementById('quickAddForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const nameInput = document.getElementById('customName');
+            const priceInput = document.getElementById('customPrice');
+            
+            const price = parseFloat(priceInput.value.replace(',', '.'));
+            if (!price || price <= 0) return;
+
+            addToCart({
+                name: nameInput.value.trim(),
+                price: price,
+                trEligible: true, // Defaulting to TR eligible for manual fast entries
+                brand: 'Article Manuel'
+            });
+
+            nameInput.value = '';
+            priceInput.value = '';
+        });
+
+        // --- 6. CATALOG SEARCH & FILTERS ---
+        const searchModal = document.getElementById('searchModal');
+        const searchInput = document.getElementById('searchInput');
+        const searchResultsList = document.getElementById('searchResultsList');
+
+        document.getElementById('openSearchBtn').addEventListener('click', () => {
+            searchModal.classList.remove('hidden');
+            renderSearchResults(DATABASE);
+        });
+
+        document.getElementById('closeSearchBtn').addEventListener('click', () => {
+            searchModal.classList.add('hidden');
+        });
+
+        function renderSearchResults(items) {
+            searchResultsList.innerHTML = items.map(item => `
+                <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
+                    <div>
+                        <div class="flex items-center gap-1 mb-0.5">
+                            <span class="${item.trEligible ? 'text-emerald-700 bg-emerald-100' : 'text-slate-600 bg-slate-200'} text-[9px] font-bold px-1.5 py-0.5 rounded">
+                                ${item.trEligible ? 'TR Éligible' : 'Hors-TR'}
+                            </span>
+                            <span class="text-[10px] text-slate-400">${item.category}</span>
+                        </div>
+                        <h4 class="font-semibold text-xs text-slate-900">${item.name}</h4>
+                        <span class="font-extrabold text-sm text-slate-800">${item.price.toFixed(2)} €</span>
+                    </div>
+                    <button onclick='addToCart(${JSON.stringify(item)})' class="bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold active:scale-95 transition">
+                        + Ajouter
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            const filtered = DATABASE.filter(i => 
+                i.name.toLowerCase().includes(query) || 
+                i.brand.toLowerCase().includes(query) || 
+                i.category.toLowerCase().includes(query)
+            );
+            renderSearchResults(filtered);
+        });
+
+        // Filter chips logic
+        document.querySelectorAll('.filter-chip').forEach(chip => {
+            chip.addEventListener('click', (e) => {
+                document.querySelectorAll('.filter-chip').forEach(c => {
+                    c.className = "filter-chip bg-white border border-slate-200 text-slate-600 px-3 py-1.5 rounded-lg font-medium whitespace-nowrap";
+                });
+                e.target.className = "filter-chip bg-slate-900 text-white px-3 py-1.5 rounded-lg font-medium whitespace-nowrap";
+                
+                const filter = e.target.dataset.filter;
+                if (filter === 'all') renderSearchResults(DATABASE);
+                else if (filter === 'tr') renderSearchResults(DATABASE.filter(i => i.trEligible));
+                else if (filter === 'nontr') renderSearchResults(DATABASE.filter(i => !i.trEligible));
+            });
+        });
+
+        // --- 7. CAMERA & BARCODE SCANNER LOGIC ---
+        const scannerModal = document.getElementById('scannerModal');
+
+        document.getElementById('openScannerBtn').addEventListener('click', () => {
+            scannerModal.classList.remove('hidden');
+            initCameraScanner();
+        });
+
+        document.getElementById('closeScannerBtn').addEventListener('click', () => {
+            scannerModal.classList.add('hidden');
+            if (html5QrcodeScanner) {
+                html5QrcodeScanner.stop().catch(err => console.error(err));
+            }
+        });
+
+        function initCameraScanner() {
+            html5QrcodeScanner = new Html5Qrcode("qr-reader");
+            const config = { fps: 10, qrbox: { width: 250, height: 150 } };
+
+            html5QrcodeScanner.start(
+                { facingMode: "environment" }, 
+                config, 
+                onScanSuccess
+            ).catch(err => {
+                console.log("Erreur caméra (utilisez le simulateur)", err);
+            });
+        }
+
+        function onScanSuccess(decodedText) {
+            simulateScan(decodedText);
+        }
+
+        function simulateScan(barcode) {
+            const matchedProduct = DATABASE.find(p => p.barcode === barcode);
+            if (matchedProduct) {
+                addToCart(matchedProduct);
+            } else {
+                // If scanned unknown product, create placeholder
+                addToCart({
+                    name: `Article Scanné (${barcode.slice(-4)})`,
+                    price: 3.20,
+                    trEligible: true,
+                    brand: 'Inconnu'
+                });
+            }
+            // Auto close scanner after success
+            scannerModal.classList.add('hidden');
+            if (html5QrcodeScanner) {
+                html5QrcodeScanner.stop().catch(() => {});
+            }
+        }
+
+        // --- 8. TABS & NAVIGATION ---
+        const tabCart = document.getElementById('tabCart');
+        const tabBelt = document.getElementById('tabBelt');
+        const cartView = document.getElementById('cartView');
+        const beltView = document.getElementById('beltView');
+
+        tabCart.addEventListener('click', () => {
+            tabCart.className = "flex-1 py-2 rounded-lg bg-white text-slate-900 shadow-sm font-semibold transition text-center";
+            tabBelt.className = "flex-1 py-2 rounded-lg hover:text-slate-900 transition text-center flex items-center justify-center gap-1";
+            cartView.classList.remove('hidden');
+            beltView.classList.add('hidden');
+        });
+
+        tabBelt.addEventListener('click', () => {
+            tabBelt.className = "flex-1 py-2 rounded-lg bg-white text-slate-900 shadow-sm font-semibold transition text-center";
+            tabCart.className = "flex-1 py-2 rounded-lg hover:text-slate-900 transition text-center flex items-center justify-center gap-1";
+            beltView.classList.remove('hidden');
+            cartView.classList.add('hidden');
+        });
+
+        // --- 9. UTILS & INITIALIZATION ---
+        function showToast(msg, icon = "fa-circle-check") {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toastMsg');
+            const toastIcon = document.getElementById('toastIcon');
+            
+            toastMsg.innerText = msg;
+            toastIcon.className = `fa-solid ${icon} text-brand-500`;
+            toast.classList.remove('hidden');
+            
+            setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 2000);
+        }
+
+        // Initialize App
+        window.addEventListener('load', () => {
+            loadSavedCart();
+            updateUI();
+        });
+    </script>
+</body>
+</html>
